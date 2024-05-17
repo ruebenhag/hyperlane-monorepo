@@ -27,6 +27,13 @@ export type OwnableConfig<Keys extends PropertyKey = PropertyKey> = z.infer<
   ownerOverrides?: Partial<Record<Keys, Address>>;
 };
 
+export function extractOwnerAddress(config: Owner): Address {
+  if (typeof config === 'string') {
+    return config;
+  }
+  return config.owner;
+}
+
 export async function resolveOrDeployAccountOwner(
   multiProvider: MultiProvider,
   chain: ChainName,
