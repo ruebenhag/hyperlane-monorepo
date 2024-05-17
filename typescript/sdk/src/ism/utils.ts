@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { BigNumber, ethers } from 'ethers';
 
 import {
   DomainRoutingIsm__factory,
@@ -170,6 +170,8 @@ export async function moduleMatchesConfig(
   multiProvider: MultiProvider,
   contracts: HyperlaneContracts<ProxyFactoryFactories>,
   mailbox?: Address,
+  // Less stringent checks on Routing/Pausable ISMs if not configured yet
+  configured = true,
 ): Promise<boolean> {
   if (typeof config === 'string') {
     return eqAddress(moduleAddress, config);
@@ -194,7 +196,7 @@ export async function moduleMatchesConfig(
       // A MerkleRootMultisigIsm matches if validators and threshold match the config
       const expectedAddress =
         await contracts.staticMerkleRootMultisigIsmFactory.getAddress(
-          config.validators.sort(),
+          [...config.validators].sort(),
           config.threshold,
         );
       matches = eqAddress(expectedAddress, module.address);
@@ -204,7 +206,7 @@ export async function moduleMatchesConfig(
       // A MessageIdMultisigIsm matches if validators and threshold match the config
       const expectedAddress =
         await contracts.staticMessageIdMultisigIsmFactory.getAddress(
-          config.validators.sort(),
+          [...config.validators].sort(),
           config.threshold,
         );
       matches = eqAddress(expectedAddress, module.address);
@@ -220,37 +222,50 @@ export async function moduleMatchesConfig(
         moduleAddress,
         provider,
       );
+
       // Check that the RoutingISM owner matches the config
       const owner = await routingIsm.owner();
-      const expectedOwner = await resolveOrDeployAccountOwner(
-        multiProvider,
-        chain,
-        config.owner,
-      );
-      matches &&= eqAddress(owner, expectedOwner);
-      // check if the mailbox matches the config for fallback routing
-      if (config.type === IsmType.FALLBACK_ROUTING) {
-        const client = MailboxClient__factory.connect(moduleAddress, provider);
-        const mailboxAddress = await client.mailbox();
-        matches =
-          matches &&
-          mailbox !== undefined &&
-          eqAddress(mailboxAddress, mailbox);
+      // If the ISM is already configured, the owner should match the config
+      if (configured) {
+        const expectedOwner = await resolveOrDeployAccountOwner(
+          multiProvider,
+          chain,
+          config.owner,
+        );
+        matches &&= eqAddress(owner, expectedOwner);
       }
-      const delta = await routingModuleDelta(
-        chain,
-        moduleAddress,
-        config,
-        multiProvider,
-        contracts,
-        mailbox,
-      );
-      matches =
-        matches &&
-        delta.domainsToEnroll.length === 0 &&
-        delta.domainsToUnenroll.length === 0 &&
-        !delta.mailbox &&
-        !delta.owner;
+      // If the ISM is not already configured, we'll check again after the ISM is updated
+
+      // We check domains if configured is true or ismtype == ISmType.ROUTING
+      if (configured || config.type === IsmType.ROUTING) {
+        // Check that the set of domains in the config equals those on-chain
+        const onChainDomains = (await routingIsm.domains()).map(
+          (domain: BigNumber) => domain.toNumber(),
+        );
+        const configDomains = Object.keys(config.domains).map((domain) =>
+          multiProvider.getDomainId(domain),
+        );
+        matches &&=
+          onChainDomains.length === configDomains.length &&
+          onChainDomains.every((domain) => configDomains.includes(domain));
+
+        // Check that the modules for each domain match the config
+        for (const domain of onChainDomains) {
+          const onChainModule = await routingIsm.module(domain);
+          const configModule =
+            config.domains[multiProvider.getChainName(domain)];
+          const moduleMatches = await moduleMatchesConfig(
+            chain,
+            onChainModule,
+            configModule,
+            multiProvider,
+            contracts,
+            mailbox,
+            configured,
+          );
+          matches &&= moduleMatches;
+        }
+      }
       break;
     }
     case IsmType.AGGREGATION: {
@@ -267,26 +282,31 @@ export async function moduleMatchesConfig(
       matches &&= threshold === config.threshold;
       matches &&= subModules.length === config.modules.length;
 
-      const configIndexMatched = new Map();
-      for (const subModule of subModules) {
-        const subModuleMatchesConfig = await Promise.all(
-          config.modules.map((c) =>
-            moduleMatchesConfig(chain, subModule, c, multiProvider, contracts),
-          ),
-        );
-        // The submodule returned by the ISM must match exactly one
-        // entry in the config.
-        const count = subModuleMatchesConfig.filter(Boolean).length;
-        matches &&= count === 1;
-
-        // That entry in the config should not have been matched already.
-        subModuleMatchesConfig.forEach((matched, index) => {
-          if (matched) {
-            matches &&= !configIndexMatched.has(index);
-            configIndexMatched.set(index, true);
+      const unmatchedConfigModules = new Set(config.modules);
+      const subModulePromises = subModules.map(async (subModule) => {
+        let foundMatch = false;
+        for (const configModule of unmatchedConfigModules) {
+          const subModuleMatchesConfig = await moduleMatchesConfig(
+            chain,
+            subModule,
+            configModule,
+            multiProvider,
+            contracts,
+            mailbox,
+            configured,
+          );
+          if (subModuleMatchesConfig) {
+            foundMatch = true;
+            unmatchedConfigModules.delete(configModule);
+            break;
           }
-        });
-      }
+        }
+        return foundMatch;
+      });
+
+      const subModuleResults = await Promise.all(subModulePromises);
+      matches &&= subModuleResults.every((result) => result);
+
       break;
     }
     case IsmType.OP_STACK: {
@@ -313,13 +333,18 @@ export async function moduleMatchesConfig(
     }
     case IsmType.PAUSABLE: {
       const pausableIsm = PausableIsm__factory.connect(moduleAddress, provider);
+
       const owner = await pausableIsm.owner();
-      const expectedOwner = await resolveOrDeployAccountOwner(
-        multiProvider,
-        chain,
-        config.owner,
-      );
-      matches &&= eqAddress(owner, expectedOwner);
+      // If the ISM is already configured, the owner should match the config
+      if (configured) {
+        const expectedOwner = await resolveOrDeployAccountOwner(
+          multiProvider,
+          chain,
+          config.owner,
+        );
+        matches &&= eqAddress(owner, expectedOwner);
+      }
+      // If the ISM is not already configured, we'll check again after the ISM is updated
 
       if (config.paused) {
         const isPaused = await pausableIsm.paused();
@@ -342,6 +367,7 @@ export async function routingModuleDelta(
   multiProvider: MultiProvider,
   contracts: HyperlaneContracts<ProxyFactoryFactories>,
   mailbox?: Address,
+  configured = true,
 ): Promise<RoutingIsmDelta> {
   const provider = multiProvider.getProvider(destination);
   const routingIsm = DomainRoutingIsm__factory.connect(moduleAddress, provider);
@@ -350,7 +376,7 @@ export async function routingModuleDelta(
     domain.toNumber(),
   );
   // config.domains is already filtered to only include domains in the multiprovider
-  const safeConfigDomains = objMap(config.domains, (chainName) =>
+  const availableDomains = objMap(config.domains, (chainName) =>
     multiProvider.getDomainId(chainName),
   );
 
@@ -365,20 +391,25 @@ export async function routingModuleDelta(
     destination,
     config.owner,
   );
-  if (!eqAddress(owner, normalizeAddress(expectedOwner)))
+  if (!eqAddress(owner, normalizeAddress(expectedOwner))) {
     delta.owner = expectedOwner;
+  }
+
+  // if fallback routing, check that mailbox matches
   if (config.type === IsmType.FALLBACK_ROUTING) {
     const client = MailboxClient__factory.connect(moduleAddress, provider);
     const mailboxAddress = await client.mailbox();
     if (mailbox && !eqAddress(mailboxAddress, mailbox)) delta.mailbox = mailbox;
   }
+
   // check for exclusion of domains in the config
   delta.domainsToUnenroll = deployedDomains.filter(
-    (domain) => !Object.values(safeConfigDomains).includes(domain),
+    (domain) => !Object.values(availableDomains).includes(domain),
   );
+
   // check for inclusion of domains in the config
   for (const [origin, subConfig] of Object.entries(config.domains)) {
-    const originDomain = safeConfigDomains[origin];
+    const originDomain = availableDomains[origin];
     if (!deployedDomains.includes(originDomain)) {
       delta.domainsToEnroll.push(originDomain);
     } else {
@@ -392,6 +423,7 @@ export async function routingModuleDelta(
         multiProvider,
         contracts,
         mailbox,
+        configured,
       );
       if (!subModuleMatches) delta.domainsToEnroll.push(originDomain);
     }
