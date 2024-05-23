@@ -8,6 +8,8 @@ import type {
   MultiProvider,
 } from '@hyperlane-xyz/sdk';
 
+import { SubmissionStrategy } from '../submit/types.js';
+
 export interface ContextSettings {
   registryUri: string;
   registryOverrideUri: string;
@@ -15,6 +17,7 @@ export interface ContextSettings {
   fromAddress?: string;
   requiresKey?: boolean;
   skipConfirmation?: boolean;
+  submissionStrategyFilepath?: string;
 }
 
 export interface CommandContext {
@@ -22,6 +25,7 @@ export interface CommandContext {
   chainMetadata: ChainMap<ChainMetadata>;
   multiProvider: MultiProvider;
   skipConfirmation: boolean;
+  submissionStrategy?: SubmissionStrategy;
   key?: string;
   signer?: ethers.Signer;
 }

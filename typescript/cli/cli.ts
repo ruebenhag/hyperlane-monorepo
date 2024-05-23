@@ -20,6 +20,7 @@ import {
 } from './src/commands/options.js';
 import { sendCommand } from './src/commands/send.js';
 import { statusCommand } from './src/commands/status.js';
+import { submitCommand } from './src/commands/submit.js';
 import { contextMiddleware } from './src/context/context.js';
 import { configureLogger, errorRed } from './src/logger.js';
 import { checkVersion } from './src/utils/version-check.js';
@@ -55,6 +56,7 @@ try {
     .command(ismCommand)
     .command(sendCommand)
     .command(statusCommand)
+    .command(submitCommand)
     .version(VERSION)
     .demandCommand()
     .strict()

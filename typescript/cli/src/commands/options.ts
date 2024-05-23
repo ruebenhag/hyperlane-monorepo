@@ -138,6 +138,20 @@ export const chainCommandOption: Options = {
   description: 'The specific chain to perform operations with.',
 };
 
+export const transactionsCommandOption: Options = {
+  type: 'string',
+  description: 'The transaction input file path.',
+  alias: ['t', 'txs', 'txns'],
+  demandOption: true,
+};
+
+export const strategyCommandOption: Options = {
+  type: 'string',
+  description: 'The submission strategy input file path.',
+  alias: 's',
+  demandOption: true,
+};
+
 export const addressCommandOption = (
   description: string,
   demandOption = false,

@@ -1,27 +1,21 @@
-import type {
-  EV5GnosisSafeTxSubmitterProps,
-  EV5ImpersonatedAccountTxSubmitterProps,
-  EV5InterchainAccountTxTransformerProps,
-  MultiProvider,
-  TxSubmitterType,
-  TxTransformerType,
-} from '@hyperlane-xyz/sdk';
+import { z } from 'zod';
+
+import type { ChainName, MultiProvider } from '@hyperlane-xyz/sdk';
+
+import {
+  SubmissionStrategySchema,
+  SubmitterMetadataSchema,
+  TransformerMetadataSchema,
+} from './schemas.js';
+
+export type SubmitterMetadata = z.infer<typeof SubmitterMetadataSchema>;
+export type TransformerMetadata = z.infer<typeof TransformerMetadataSchema>;
+export type SubmissionStrategy = z.infer<typeof SubmissionStrategySchema>;
 
 export interface SubmitterBuilderSettings {
   submitterMetadata: SubmitterMetadata;
   transformersMetadata: TransformerMetadata[];
   multiProvider: MultiProvider;
+  chain: ChainName;
+  isDryRun?: boolean;
 }
-export interface SubmitterMetadata {
-  type: TxSubmitterType;
-  props: SubmitterProps;
-}
-export interface TransformerMetadata {
-  type: TxTransformerType;
-  props: TransformerProps;
-}
-
-type SubmitterProps =
-  | EV5ImpersonatedAccountTxSubmitterProps
-  | EV5GnosisSafeTxSubmitterProps;
-type TransformerProps = EV5InterchainAccountTxTransformerProps;

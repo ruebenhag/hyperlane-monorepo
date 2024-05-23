@@ -8,7 +8,10 @@ import { isSignCommand } from '../commands/signCommands.js';
 import { forkNetworkToMultiProvider, verifyAnvil } from '../deploy/dry-run.js';
 import { logBlue } from '../logger.js';
 import { MergedRegistry } from '../registry/MergedRegistry.js';
+import { SubmissionStrategySchema } from '../submit/schemas.js';
+import { SubmissionStrategy } from '../submit/types.js';
 import { runSingleChainSelectionStep } from '../utils/chains.js';
+import { readYamlOrJson } from '../utils/files.js';
 import { getImpersonatedSigner, getSigner } from '../utils/keys.js';
 
 import {
@@ -27,6 +30,7 @@ export async function contextMiddleware(argv: Record<string, any>) {
     fromAddress: argv.fromAddress,
     requiresKey,
     skipConfirmation: argv.yes,
+    submissionStrategyFilepath: argv.strategy,
   };
   if (!isDryRun && settings.fromAddress)
     throw new Error(
@@ -48,6 +52,7 @@ export async function getContext({
   key,
   requiresKey,
   skipConfirmation,
+  submissionStrategyFilepath,
 }: ContextSettings): Promise<CommandContext> {
   const registry = getRegistry(registryUri, registryOverrideUri);
 
@@ -57,6 +62,10 @@ export async function getContext({
   }
   const multiProvider = await getMultiProvider(registry, signer);
 
+  let submissionStrategy: SubmissionStrategy | undefined = undefined;
+  if (submissionStrategyFilepath)
+    submissionStrategy = getSubmissionStrategy(submissionStrategyFilepath);
+
   return {
     registry,
     chainMetadata: multiProvider.metadata,
@@ -64,6 +73,7 @@ export async function getContext({
     key,
     signer,
     skipConfirmation: !!skipConfirmation,
+    submissionStrategy,
   } as CommandContext;
 }
 
@@ -78,6 +88,7 @@ export async function getDryRunContext(
     key,
     fromAddress,
     skipConfirmation,
+    submissionStrategyFilepath,
   }: ContextSettings,
   chain?: ChainName,
 ): Promise<CommandContext> {
@@ -105,6 +116,10 @@ export async function getDryRunContext(
   });
   multiProvider.setSharedSigner(impersonatedSigner);
 
+  let submissionStrategy: SubmissionStrategy | undefined = undefined;
+  if (submissionStrategyFilepath)
+    submissionStrategy = getSubmissionStrategy(submissionStrategyFilepath);
+
   return {
     registry,
     chainMetadata: multiProvider.metadata,
@@ -114,6 +129,7 @@ export async function getDryRunContext(
     skipConfirmation: !!skipConfirmation,
     isDryRun: true,
     dryRunChain: chain,
+    submissionStrategy,
   } as WriteCommandContext;
 }
 
@@ -148,4 +164,18 @@ async function getMultiProvider(registry: IRegistry, signer?: ethers.Signer) {
   const multiProvider = new MultiProvider(chainMetadata);
   if (signer) multiProvider.setSharedSigner(signer);
   return multiProvider;
+}
+
+/**
+ * Retrieves a submission strategy from the provided filepath.
+ * @param submissionStrategyFilepath a filepath to the submission strategy file
+ * @returns a formatted submission strategy
+ */
+function getSubmissionStrategy(
+  submissionStrategyFilepath: string,
+): SubmissionStrategy {
+  const submissionStrategyFileContent = readYamlOrJson(
+    submissionStrategyFilepath.trim(),
+  );
+  return SubmissionStrategySchema.parse(submissionStrategyFileContent);
 }
