@@ -1,5 +1,5 @@
 import { CommandModuleWithWriteContext } from '../context/types.js';
-import { logGray } from '../logger.js';
+import { logBlue, logGray } from '../logger.js';
 import { runSubmit } from '../submit/submitCommand.js';
 
 import {
@@ -32,7 +32,7 @@ export const submitCommand: CommandModuleWithWriteContext<{
       transactionsFilepath: transactions,
     });
 
-    logGray(`✅ Submission complete`);
+    logBlue(`✅ Submission complete`);
     process.exit(0);
   },
 };
