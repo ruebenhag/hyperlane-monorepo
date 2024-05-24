@@ -5,6 +5,7 @@ import {
 import { assert } from '@hyperlane-xyz/utils';
 
 import { WriteCommandContext } from '../context/types.js';
+import { logGray } from '../logger.js';
 import { readYamlOrJson } from '../utils/files.js';
 
 import { getSubmitterBuilder } from './submit.js';
@@ -37,7 +38,7 @@ export async function runSubmit({
   const transactionReceipts = await submitterBuilder.submit(...transactions);
 
   if (transactionReceipts)
-    console.log('🧾 Transaction receipts:', transactionReceipts);
+    logGray('🧾 Transaction receipts:', transactionReceipts);
 }
 
 function getTransactions(transactionsFilepath: string): PopulatedTransaction[] {
