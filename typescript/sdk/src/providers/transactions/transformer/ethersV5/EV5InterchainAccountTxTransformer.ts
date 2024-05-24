@@ -1,8 +1,14 @@
 import { ethers } from 'ethers';
 import { Logger } from 'pino';
 
-import { assert, objMap, rootLogger } from '@hyperlane-xyz/utils';
+import {
+  assert,
+  concurrentMap,
+  objMap,
+  rootLogger,
+} from '@hyperlane-xyz/utils';
 
+import { DEFAULT_CONTRACT_READ_CONCURRENCY } from '../../../../consts/concurrency.js';
 import {
   InterchainAccount,
   buildInterchainAccountApp,
@@ -27,6 +33,9 @@ export class EV5InterchainAccountTxTransformer
   constructor(
     public readonly multiProvider: MultiProvider,
     public readonly props: EV5InterchainAccountTxTransformerProps,
+    private readonly concurrency: number = multiProvider.tryGetRpcConcurrency(
+      props.chain,
+    ) ?? DEFAULT_CONTRACT_READ_CONCURRENCY,
   ) {
     assert(
       this.props.config.localRouter,
@@ -69,6 +78,10 @@ export class EV5InterchainAccountTxTransformer
       );
     });
 
-    return Promise.all(transformedTxs);
+    return await concurrentMap(
+      this.concurrency,
+      transformedTxs,
+      async (transformedTx) => transformedTx,
+    );
   }
 }
