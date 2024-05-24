@@ -21,8 +21,7 @@ export async function runSubmit({
 
   assert(
     submissionStrategy,
-    `Submission strategy required to submit transactions.
-  Please create a submission strategy, e.g. ./strategy.yaml.`,
+    'Submission strategy required to submit transactions.\nPlease create a submission strategy, e.g. ./strategy.yaml.',
   );
 
   const chain = submissionStrategy.chain;
@@ -42,8 +41,12 @@ export async function runSubmit({
 }
 
 function getTransactions(transactionsFilepath: string): PopulatedTransaction[] {
-  const transactionsFileContent = readYamlOrJson<any[]>(
+  const transactionsFileContent = readYamlOrJson<any[] | undefined>(
     transactionsFilepath.trim(),
+  );
+  assert(
+    transactionsFileContent,
+    'Transactions required to submit transactions.\nPlease add a transactions file, e.g. ./transactions.json.',
   );
   return transactionsFileContent.map((tx) =>
     PopulatedTransactionSchema.parse(tx),
