@@ -17,7 +17,7 @@ export const submitCommand: CommandModuleWithWriteContext<{
   'dry-run': string;
 }> = {
   command: 'submit',
-  describe: 'Submit transactions to Hyperlane',
+  describe: 'Submit transactions',
   builder: {
     transactions: transactionsCommandOption,
     strategy: strategyCommandOption,
@@ -32,7 +32,7 @@ export const submitCommand: CommandModuleWithWriteContext<{
       transactionsFilepath: transactions,
     });
 
-    logGray(`✅ Hyperlane submission complete`);
+    logGray(`✅ Submission complete`);
     process.exit(0);
   },
 };
