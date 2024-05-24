@@ -1,15 +1,18 @@
 import { ethers } from 'ethers';
 
 import { IRegistry } from '@hyperlane-xyz/registry';
-import { ChainName, MultiProvider } from '@hyperlane-xyz/sdk';
+import {
+  ChainName,
+  MultiProvider,
+  SubmissionStrategy,
+  SubmissionStrategySchema,
+} from '@hyperlane-xyz/sdk';
 import { isNullish } from '@hyperlane-xyz/utils';
 
 import { isSignCommand } from '../commands/signCommands.js';
 import { forkNetworkToMultiProvider, verifyAnvil } from '../deploy/dry-run.js';
 import { logBlue } from '../logger.js';
 import { MergedRegistry } from '../registry/MergedRegistry.js';
-import { SubmissionStrategySchema } from '../submit/schemas.js';
-import { SubmissionStrategy } from '../submit/types.js';
 import { runSingleChainSelectionStep } from '../utils/chains.js';
 import { readYamlOrJson } from '../utils/files.js';
 import { getImpersonatedSigner, getSigner } from '../utils/keys.js';

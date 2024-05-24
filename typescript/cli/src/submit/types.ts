@@ -1,16 +1,9 @@
-import { z } from 'zod';
-
-import type { ChainName, MultiProvider } from '@hyperlane-xyz/sdk';
-
-import {
-  SubmissionStrategySchema,
-  SubmitterMetadataSchema,
-  TransformerMetadataSchema,
-} from './schemas.js';
-
-export type SubmitterMetadata = z.infer<typeof SubmitterMetadataSchema>;
-export type TransformerMetadata = z.infer<typeof TransformerMetadataSchema>;
-export type SubmissionStrategy = z.infer<typeof SubmissionStrategySchema>;
+import type {
+  ChainName,
+  MultiProvider,
+  SubmitterMetadata,
+  TransformerMetadata,
+} from '@hyperlane-xyz/sdk';
 
 export interface SubmitterBuilderSettings {
   submitterMetadata: SubmitterMetadata;

@@ -6,9 +6,8 @@ import type {
   ChainMap,
   ChainMetadata,
   MultiProvider,
+  SubmissionStrategy,
 } from '@hyperlane-xyz/sdk';
-
-import { SubmissionStrategy } from '../submit/types.js';
 
 export interface ContextSettings {
   registryUri: string;

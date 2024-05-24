@@ -4,6 +4,8 @@ import {
   EV5InterchainAccountTxTransformer,
   EV5JsonRpcTxSubmitter,
   MultiProvider,
+  SubmitterMetadata,
+  TransformerMetadata,
   TxSubmitterBuilder,
   TxSubmitterInterface,
   TxSubmitterType,
@@ -12,11 +14,7 @@ import {
 } from '@hyperlane-xyz/sdk';
 import { ProtocolType } from '@hyperlane-xyz/utils';
 
-import {
-  SubmitterBuilderSettings,
-  SubmitterMetadata,
-  TransformerMetadata,
-} from './types.js';
+import { SubmitterBuilderSettings } from './types.js';
 
 export async function getSubmitterBuilder<TProtocol extends ProtocolType>({
   submitterMetadata,
