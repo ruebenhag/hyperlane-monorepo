@@ -6,8 +6,9 @@ import {
   IL1CrossDomainMessenger__factory,
   OPStackHook,
   OPStackIsm__factory,
-  PausableHook,
+  Ownable__factory,
   ProtocolFee,
+  ProtocolFee__factory,
   StaticAggregationHook,
   StaticAggregationHookFactory__factory,
   StaticAggregationHook__factory,
@@ -16,6 +17,8 @@ import {
   Address,
   ProtocolType,
   addressToBytes32,
+  configDeepEquals,
+  eqAddress,
   normalizeConfig,
   rootLogger,
 } from '@hyperlane-xyz/utils';
@@ -31,7 +34,11 @@ import { extractOwnerAddress } from '../deploy/types.js';
 import { EvmIsmModule } from '../ism/EvmIsmModule.js';
 import { IsmType, OpStackIsmConfig } from '../ism/types.js';
 import { MultiProvider } from '../providers/MultiProvider.js';
-import { EthersV5Transaction } from '../providers/ProviderType.js';
+import {
+  AnnotatedEthersV5Transaction,
+  EthersV5Transaction,
+  createAnnotatedEthersV5Transaction,
+} from '../providers/ProviderType.js';
 import { ChainNameOrId } from '../types.js';
 
 import { EvmHookReader } from './EvmHookReader.js';
@@ -42,6 +49,7 @@ import {
   FallbackRoutingHookConfig,
   HookConfig,
   HookType,
+  ImmutableHookType,
   OpStackHookConfig,
   ProtocolFeeHookConfig,
 } from './types.js';
@@ -82,15 +90,100 @@ export class EvmHookModule extends HyperlaneModule<
   }
 
   public async read(): Promise<HookConfig> {
-    const config =
-      typeof this.args.config === 'string'
-        ? this.args.addresses.deployedHook
-        : await this.reader.deriveHookConfig(this.args.addresses.deployedHook);
+    const config = await this.reader.deriveHookConfig(
+      this.args.addresses.deployedHook,
+    );
     return normalizeConfig(config);
   }
 
-  public async update(_config: HookConfig): Promise<EthersV5Transaction[]> {
-    throw new Error('Method not implemented.');
+  public async update(
+    targetConfig: HookConfig,
+  ): Promise<AnnotatedEthersV5Transaction[]> {
+    // save current config for comparison
+    const currentConfig = await this.read();
+
+    // Update the config
+    this.args.config = targetConfig;
+
+    if (configDeepEquals(currentConfig, targetConfig)) {
+      return [];
+    }
+
+    // Check if we need to deploy a new hook
+    if (
+      // if types are different, do a new deploy
+      currentConfig.type !== targetConfig.type ||
+      // if immutable, do a new deploy
+      ImmutableHookType.includes(targetConfig.type)
+    ) {
+      const contract = await this.deploy({
+        config: targetConfig,
+      });
+
+      this.args.addresses.deployedHook = contract.address;
+      return [];
+    }
+
+    let updateTxs: EthersV5Transaction[];
+
+    switch (targetConfig.type) {
+      // TODO: IGP support in EvmHookModule
+      // case HookType.INTERCHAIN_GAS_PAYMASTER:
+      //   break;
+      case HookType.PROTOCOL_FEE: {
+        updateTxs = await this.updateProtocolFee({
+          current: currentConfig as ProtocolFeeHookConfig,
+          target: targetConfig,
+        });
+        break;
+      }
+      case HookType.OP_STACK:
+        updateTxs = [];
+        // Handle OP Stack specific updates
+        // Add your OP Stack update logic here
+        break;
+      case HookType.ROUTING:
+        updateTxs = [];
+        // Handle Routing specific updates
+        // Add your Routing update logic here
+        break;
+      case HookType.FALLBACK_ROUTING:
+        updateTxs = [];
+        // Handle Fallback Routing specific updates
+        // Add your Fallback Routing update logic here
+        break;
+      case HookType.PAUSABLE:
+        updateTxs = [];
+        // no-op, just check ownership later
+        break;
+      default:
+        // Handle unexpected hook type
+        throw new Error(`Unexpected hook type: ${targetConfig.type}`);
+    }
+
+    // Lastly, check if the resolved owner is different from the current owner
+    const provider = this.multiProvider.getProvider(this.chainName);
+    const targetOwner = extractOwnerAddress(targetConfig.owner);
+    const owner = await Ownable__factory.connect(
+      this.args.addresses.deployedHook,
+      provider,
+    ).owner();
+
+    // Return an ownership transfer transaction if required
+    if (!eqAddress(targetOwner, owner)) {
+      const tx = createAnnotatedEthersV5Transaction({
+        annotation: 'Transferring ownership of ownable Hook...',
+        chainId: this.domainId,
+        to: this.args.addresses.deployedHook,
+        data: Ownable__factory.createInterface().encodeFunctionData(
+          'transferOwnership(address)',
+          [targetOwner],
+        ),
+      });
+      updateTxs.push(tx);
+    }
+
+    return updateTxs;
   }
 
   // manually write static create function
@@ -129,6 +222,7 @@ export class EvmHookModule extends HyperlaneModule<
         return this.deployer.deployContract(this.chainName, config.type, [
           this.args.addresses.mailbox,
         ]);
+      // TODO: IGP support in EvmHookModule
       // case HookType.INTERCHAIN_GAS_PAYMASTER:
       //   const { interchainGasPaymaster } = await this.deployIgp(
       //     chain,
@@ -140,31 +234,25 @@ export class EvmHookModule extends HyperlaneModule<
       case HookType.AGGREGATION:
         return this.deployAggregation({ config });
       case HookType.PROTOCOL_FEE:
-        return this.deployProtocolFee(config);
+        return this.deployProtocolFee({ config });
       case HookType.OP_STACK:
         return this.deployOpStack({ config });
       case HookType.ROUTING:
       case HookType.FALLBACK_ROUTING:
         return this.deployRouting({ config });
       case HookType.PAUSABLE: {
-        const hook: PausableHook = await this.deployer.deployContract(
-          this.chainName,
-          config.type,
-          [],
-        );
-        await this.deployer.transferOwnershipOfContracts<HookType.PAUSABLE>(
-          this.chainName,
-          config,
-          { [HookType.PAUSABLE]: hook },
-        );
-        return hook;
+        return this.deployer.deployContract(this.chainName, config.type, []);
       }
       default:
         throw new Error(`Unsupported hook config: ${config}`);
     }
   }
 
-  async deployProtocolFee(config: ProtocolFeeHookConfig): Promise<ProtocolFee> {
+  async deployProtocolFee({
+    config,
+  }: {
+    config: ProtocolFeeHookConfig;
+  }): Promise<ProtocolFee> {
     this.logger.debug('Deploying ProtocolFeeHook for %s', this.chainName);
     return this.deployer.deployContract(this.chainName, HookType.PROTOCOL_FEE, [
       config.maxProtocolFee,
@@ -174,6 +262,56 @@ export class EvmHookModule extends HyperlaneModule<
     ]);
   }
 
+  async updateProtocolFee({
+    current,
+    target,
+  }: {
+    current: ProtocolFeeHookConfig;
+    target: ProtocolFeeHookConfig;
+  }): Promise<AnnotatedEthersV5Transaction[]> {
+    const updateTxs = [];
+
+    // Deploy a new protocol fee hook if maxProtocolFee has changed
+    if (current.maxProtocolFee !== target.maxProtocolFee) {
+      const hook = await this.deployProtocolFee({ config: target });
+      this.args.addresses.deployedHook = hook.address;
+    }
+
+    // Update protocol fee if changed
+    if (current.protocolFee !== target.protocolFee) {
+      updateTxs.push(
+        createAnnotatedEthersV5Transaction({
+          annotation: `Updating protocol fee from ${current.protocolFee} to ${target.protocolFee}`,
+          chainId: this.domainId,
+          to: this.args.addresses.deployedHook,
+          data: ProtocolFee__factory.createInterface().encodeFunctionData(
+            'setProtocolFee(uint256)',
+            [target.protocolFee],
+          ),
+        }),
+      );
+    }
+
+    // Update beneficiary if changed
+    if (current.beneficiary !== target.beneficiary) {
+      updateTxs.push(
+        createAnnotatedEthersV5Transaction({
+          annotation: `Updating beneficiary from ${current.beneficiary} to ${target.beneficiary}`,
+          chainId: this.domainId,
+          to: this.args.addresses.deployedHook,
+          data: ProtocolFee__factory.createInterface().encodeFunctionData(
+            'setBeneficiary(address)',
+            [target.beneficiary],
+          ),
+        }),
+      );
+    }
+
+    // Return the transactions to update the protocol fee hook
+    return updateTxs;
+  }
+
+  // TODO: IGP support in EvmHookModule
   // async deployIgp(
   //   config: IgpHookConfig,
   // ): Promise<HyperlaneContracts<IgpFactories>> {
@@ -200,33 +338,34 @@ export class EvmHookModule extends HyperlaneModule<
   }: {
     config: AggregationHookConfig;
   }): Promise<StaticAggregationHook> {
+    // deploy subhooks
     this.logger.debug('Deploying AggregationHook for %s', this.chainName);
-    const aggregatedHooks: string[] = [];
-    const chain = this.chainName;
-    for (const hookConfig of config.hooks) {
-      const subhook = await this.deploy({ config: hookConfig });
-      aggregatedHooks.push(subhook.address);
-    }
+    const aggregatedHooks = await Promise.all(
+      config.hooks.map(async (hookConfig) => {
+        const subhook = await this.deploy({ config: hookConfig });
+        return subhook.address;
+      }),
+    );
 
+    // deploy aggregation hook
     this.logger.debug(
       `Deploying aggregation hook of ${config.hooks.map((h) => h.type)}`,
     );
+    const signer = this.multiProvider.getSigner(this.chainName);
     const factory = StaticAggregationHookFactory__factory.connect(
       this.args.addresses.staticAggregationHookFactory,
-      this.multiProvider.getSignerOrProvider(chain),
+      signer,
     );
     const address = await EvmIsmModule.deployStaticAddressSet({
-      chain,
+      chain: this.chainName,
       factory,
       values: aggregatedHooks,
       logger: this.logger,
       multiProvider: this.multiProvider,
     });
 
-    return StaticAggregationHook__factory.connect(
-      address,
-      this.multiProvider.getSignerOrProvider(chain),
-    );
+    // return aggregation hook
+    return StaticAggregationHook__factory.connect(address, signer);
   }
 
   async deployOpStack({
@@ -280,6 +419,7 @@ export class EvmHookModule extends HyperlaneModule<
       addressToBytes32(opstackIsm.address),
       config.nativeBridge,
     ]);
+
     const overrides = this.multiProvider.getTransactionOverrides(chain);
 
     // set authorized hook on opstack ism
