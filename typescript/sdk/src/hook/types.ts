@@ -30,7 +30,11 @@ export enum HookType {
 }
 
 // Hook types that can't be modified in-place
-export const ImmutableHookType = [HookType.MERKLE_TREE, HookType.AGGREGATION];
+export const ImmutableHookType = [
+  HookType.MERKLE_TREE,
+  HookType.AGGREGATION,
+  HookType.OP_STACK,
+];
 
 export type MerkleTreeHookConfig = {
   type: HookType.MERKLE_TREE;
